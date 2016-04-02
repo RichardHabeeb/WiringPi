@@ -1833,7 +1833,7 @@ static void *interruptHandler (void *arg)
  *	back to the user supplied function.
  *********************************************************************************
  */
-int wiringPiISR (int pin, int mode, void (*function)(void *), void * data)
+int wiringPiDataISR (int pin, int mode, void (*function)(void *), void * data)
 {
   int ret = wiringPiISR (pin, mode, NULL);
 
