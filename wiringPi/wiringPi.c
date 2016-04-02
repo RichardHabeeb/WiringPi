@@ -1835,11 +1835,13 @@ static void *interruptHandler (void *arg)
  */
 int wiringPiISR (int pin, int mode, void (*function)(void *), void * data)
 {
-  wiringPiISR (pin, mode, NULL);
+  int ret = wiringPiISR (pin, mode, NULL);
 
   isrFunctionData [pin] = data ;
   isrFunctionsWithData [pin] = function ;
   isrFunctionHasData [pin] = TRUE;
+
+  return ret;
 }
 
 /*
