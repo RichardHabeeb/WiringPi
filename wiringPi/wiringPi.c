@@ -1819,10 +1819,6 @@ static void *interruptHandler (void *arg)
           isrFunctions [myPin] () ;
       }
 
-  }
-
-
-
   return NULL ;
 }
 
