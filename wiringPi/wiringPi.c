@@ -310,6 +310,9 @@ static int sysFds [64] =
 // ISR Data
 
 static void (*isrFunctions [64])(void) ;
+static void (*isrFunctionsWithData [64])(void *) ;
+static void * isrFunctionData [64] ;
+static void * isrFunctionHasData [64] ;
 
 
 // Doing it the Arduino way with lookup tables...
@@ -743,7 +746,7 @@ int piBoardRev (void)
 
   for (c = &line [strlen (line) - 1] ; (*c == '\n') || (*c == '\r') ; --c)
     *c = 0 ;
-  
+
   if (wiringPiDebug)
     printf ("piboardRev: Revision string: %s\n", line) ;
 
@@ -815,7 +818,7 @@ int piBoardRev (void)
  *	So the distinction between boards that I can see is:
  *
  *		0000 - Error
- *		0001 - Not used 
+ *		0001 - Not used
  *
  *	Original Pi boards:
  *		0002 - Model B,  Rev 1,   256MB, Egoman
@@ -888,7 +891,7 @@ void piBoardId (int *model, int *rev, int *mem, int *maker, int *warranty)
 
   for (c = &line [strlen (line) - 1] ; (*c == '\n') || (*c == '\r') ; --c)
     *c = 0 ;
-  
+
   if (wiringPiDebug)
     printf ("piBoardId: Revision string: %s\n", line) ;
 
@@ -927,7 +930,7 @@ void piBoardId (int *model, int *rev, int *mem, int *maker, int *warranty)
     bMfg      = (revision & (0x0F << 16)) >> 16 ;
     bMem      = (revision & (0x07 << 20)) >> 20 ;
     bWarranty = (revision & (0x03 << 24)) != 0 ;
-    
+
     *model    = bType ;
     *rev      = bRev ;
     *mem      = bMem ;
@@ -954,7 +957,7 @@ void piBoardId (int *model, int *rev, int *mem, int *maker, int *warranty)
 // If longer than 4, we'll assume it's been overvolted
 
     *warranty = strlen (c) > 4 ;
-  
+
 // Extract last 4 characters:
 
     c = c + strlen (c) - 4 ;
@@ -981,7 +984,7 @@ void piBoardId (int *model, int *rev, int *mem, int *maker, int *warranty)
     else                              { *model = 0           ; *rev = 0              ; *mem =   0 ; *maker = 0 ;               }
   }
 }
- 
+
 
 
 /*
@@ -1176,7 +1179,7 @@ void gpioClockSet (int pin, int freq)
     pin = physToGpio [pin] ;
   else if (wiringPiMode != WPI_MODE_GPIO)
     return ;
-  
+
   if (RASPBERRY_PI_PERI_BASE == 0)	// Ignore for now
     return ;
 
@@ -1423,7 +1426,7 @@ void pullUpDnControl (int pin, int pud)
 
     *(gpio + GPPUD)              = pud & 3 ;		delayMicroseconds (5) ;
     *(gpio + gpioToPUDCLK [pin]) = 1 << (pin & 31) ;	delayMicroseconds (5) ;
-    
+
     *(gpio + GPPUD)              = 0 ;			delayMicroseconds (5) ;
     *(gpio + gpioToPUDCLK [pin]) = 0 ;			delayMicroseconds (5) ;
   }
@@ -1556,7 +1559,7 @@ void pwmWrite (int pin, int value)
 
 /*
  * analogRead:
- *	Read the analog value of a given Pin. 
+ *	Read the analog value of a given Pin.
  *	There is no on-board Pi analog hardware,
  *	so this needs to go to a new node.
  *********************************************************************************
@@ -1575,7 +1578,7 @@ int analogRead (int pin)
 
 /*
  * analogWrite:
- *	Write the analog value to the given Pin. 
+ *	Write the analog value to the given Pin.
  *	There is no on-board Pi analog hardware,
  *	so this needs to go to a new node.
  *********************************************************************************
@@ -1625,7 +1628,7 @@ void pwmToneWrite (int pin, int freq)
  *	Write an 8-bit byte to the first 8 GPIO pins - try to do it as
  *	fast as possible.
  *	However it still needs 2 operations to set the bits, so any external
- *	hardware must not rely on seeing a change as there will be a change 
+ *	hardware must not rely on seeing a change as there will be a change
  *	to set the outputs bits to zero, then another change to set the 1's
  *	Reading is just bit fiddling.
  *	These are wiringPi pin numbers 0..7, or BCM_GPIO pin numbers
@@ -1681,7 +1684,7 @@ unsigned int digitalReadByte (void)
       data = (data << 1) | x ;
     }
   }
-  else 
+  else
   {
     raw = *(gpio + gpioToGPLEV [0]) ; // First bank for these pins
     for (pin = 0 ; pin < 8 ; ++pin)
@@ -1738,7 +1741,7 @@ unsigned int digitalReadByte2 (void)
       data = (data << 1) | x ;
     }
   }
-  else 
+  else
     data = ((*(gpio + gpioToGPLEV [0])) >> 20) & 0xFF ; // First bank for these pins
 
   return data ;
@@ -1806,13 +1809,38 @@ static void *interruptHandler (void *arg)
   myPin   = pinPass ;
   pinPass = -1 ;
 
-  for (;;)
-    if (waitForInterrupt (myPin, -1) > 0)
-      isrFunctions [myPin] () ;
+
+    for (;;)
+      if (waitForInterrupt (myPin, -1) > 0)
+      {
+        if(isrFunctionHasData[myPin])
+          isrFunctionsWithData [myPin] (isrFunctionData [myPin]) ;
+        else
+          isrFunctions [myPin] () ;
+      }
+
+  }
+
+
 
   return NULL ;
 }
 
+/*
+ * wiringPiISR:
+ *	Pi Specific.
+ *	Take the details and create an interrupt handler that will do a call-
+ *	back to the user supplied function.
+ *********************************************************************************
+ */
+int wiringPiISR (int pin, int mode, void (*function)(void *), void * data)
+{
+  wiringPiISR (pin, mode, NULL);
+
+  isrFunctionData [pin] = data ;
+  isrFunctionsWithData [pin] = function ;
+  isrFunctionHasData [pin] = TRUE;
+}
 
 /*
  * wiringPiISR:
@@ -1901,6 +1929,7 @@ int wiringPiISR (int pin, int mode, void (*function)(void))
     read (sysFds [bcmGpioPin], &c, 1) ;
 
   isrFunctions [pin] = function ;
+  isrFunctionHasData [pin] = FALSE;
 
   pthread_mutex_lock (&pinMutex) ;
     pinPass = pin ;
@@ -2059,6 +2088,8 @@ int wiringPiSetup (void)
 
   alreadyCalled = TRUE ;
 
+  memset(isrFunctionData, NULL, sizeof(isrFunctionData)*sizeof(isrFunctionData[0]));
+  memset(isrFunctionHasData, FALSE, sizeof(isrFunctionData)*sizeof(isrFunctionData[0]));
 
   if (getenv (ENV_DEBUG) != NULL)
     wiringPiDebug = TRUE ;
@@ -2143,13 +2174,13 @@ int wiringPiSetup (void)
   pwm = (uint32_t *)mmap(0, BLOCK_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd, GPIO_PWM) ;
   if ((int32_t)pwm == -1)
     return wiringPiFailure (WPI_ALMOST, "wiringPiSetup: mmap (PWM) failed: %s\n", strerror (errno)) ;
- 
+
 //	Clock control (needed for PWM)
 
   clk = (uint32_t *)mmap(0, BLOCK_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd, GPIO_CLOCK_BASE) ;
   if ((int32_t)clk == -1)
     return wiringPiFailure (WPI_ALMOST, "wiringPiSetup: mmap (CLOCK) failed: %s\n", strerror (errno)) ;
- 
+
 //	The drive pads
 
   pads = (uint32_t *)mmap(0, BLOCK_SIZE, PROT_READ|PROT_WRITE, MAP_SHARED, fd, GPIO_PADS) ;
@@ -2278,7 +2309,7 @@ int wiringPiSetupSys (void)
 
 // Open and scan the directory, looking for exported GPIOs, and pre-open
 //	the 'value' interface to speed things up for later
-  
+
   for (pin = 0 ; pin < 64 ; ++pin)
   {
     sprintf (fName, "/sys/class/gpio/gpio%d/value", pin) ;
